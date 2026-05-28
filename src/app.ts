@@ -15,37 +15,41 @@ import modelsRoutes from "./routes/models-routes";
 import instancesRoutes from "./routes/instances-routes";
 import scenariosRoutes from "./routes/scenarios-routes";
 import uploadRoutes from "./routes/upload-routes";
+import simulationRuntimeRoutes from "./routes/simulation-runtime-routes";
 
 export class App {
-    #app: Express;
+  #app: Express;
 
-    constructor() {
-        this.#app = express();
-        this.configureMiddleware();
-        this.configureRoutes();
-    }
+  constructor() {
+    this.#app = express();
+    this.configureMiddleware();
+    this.configureRoutes();
+  }
 
-    private configureMiddleware(): void {
+  private configureMiddleware(): void {
+    this.#app.use(cors());
+    this.#app.use(express.json());
+    this.#app.use("/models", express.static(path.join(modelsPath)));
+  }
 
-        this.#app.use(cors());
-        this.#app.use(express.json());
-        this.#app.use('/models', express.static(path.join(modelsPath)));
-    }
+  private configureRoutes(): void {
+    this.#app.get("/health", (_req: Request, res: Response) => {
+      res.json({ status: "ok" });
+    });
+    this.#app.use("/", modelsRoutes);
+    this.#app.use("/", instancesRoutes);
+    this.#app.use("/", simulationRuntimeRoutes);
+    this.#app.use("/", scenariosRoutes);
+    this.#app.use("/", uploadRoutes);
+  }
 
-    private configureRoutes(): void {
-        this.#app.use("/", modelsRoutes);
-        this.#app.use("/", instancesRoutes);
-        this.#app.use("/", scenariosRoutes);
-        this.#app.use("/", uploadRoutes);
-    }
+  public listen(port: number): void {
+    this.#app.listen(port, () => {
+      console.log(`Server is running on http://localhost:${port}`);
+    });
+  }
 
-    public listen(port: number): void {
-        this.#app.listen(port, () => {
-            console.log(`Server is running on http://localhost:${port}`);
-        });
-    }
-
-    public getExpressApp(): Express {
-        return this.#app;
-    }
+  public getExpressApp(): Express {
+    return this.#app;
+  }
 }

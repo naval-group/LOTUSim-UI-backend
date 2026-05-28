@@ -9,77 +9,63 @@
  */
 import { Quaternion } from "./interfaces/geometry";
 
-export const modelsPath = process.env.LOTUSIM_MODELS_PATH || "~/lotusim_ws/src/lotusim/assets/models/";
-if (!process.env.LOTUSIM_MODELS_PATH) {
-    console.warn(`Environment variable 'LOTUSIM_MODELS_PATH' is not set, using default path. ${modelsPath}`);
-} else {
-    console.log(`Models loaded from ${modelsPath}`);
-}
+// ─── Path Resolution ─────────────────────────────────────────
 
-export function quaternionToGpsHeading(qx: number, qy: number, qz: number, qw: number): number {
-    // Extract ENU yaw from quaternion as GZ uses ENU convention
-    const siny_cosp = 2 * (qw * qz + qx * qy);
-    const cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
-    const yawRad = Math.atan2(siny_cosp, cosy_cosp);
+const resolveEnvPath = (envVar: string, fallback: string): string => {
+  const value = process.env[envVar];
+  if (value) {
+    console.log(`${envVar}: ${value}`);
+    return value;
+  }
+  console.warn(`${envVar} is not set, falling back to: ${fallback}`);
+  return fallback;
+};
 
-    // Convert rad to deg and rotate ENU to NED
-    let headingDeg = 90 - (yawRad * 180 / Math.PI);
+export const modelsPath = resolveEnvPath(
+  "LOTUSIM_MODELS_PATH",
+  "~/lotusim_ws/src/lotusim/assets/models/",
+);
 
-    // Normalize heading to [0, 360)
-    headingDeg = (headingDeg + 360) % 360;
+export const scenariosPath = resolveEnvPath(
+  "LOTUSIM_SCENARIOS_PATH",
+  "~/lotusim_ws/src/LOTUSim/assets/scenarios/",
+);
 
-    return headingDeg;
-}
-
-export function radToDeg(rad: number): number { return rad * 180 / Math.PI };
+// ─── Geometry ────────────────────────────────────────────────
 
 /**
- * Converts quaternion to Euler angles [yaw (ψ), pitch (θ'), roll (φ'')]
- * in radians.
- * [ψ, θ', φ'']
- * psi, theta', phi
+ * Converts a quaternion to Euler angles [yaw (ψ), pitch (θ'), roll (φ'')]
+ * in radians, using the ZYX convention.
  */
 export function quaternionToEulerZYX(q: Quaternion): [number, number, number] {
-    const { x, y, z, w } = q;
+  const { x, y, z, w } = q;
 
-    const siny_cosp = 2 * (w * z + x * y);
-    const cosy_cosp = 1 - 2 * (y * y + z * z);
-    const yaw = Math.atan2(siny_cosp, cosy_cosp);
+  const siny_cosp = 2 * (w * z + x * y);
+  const cosy_cosp = 1 - 2 * (y * y + z * z);
+  const yaw = Math.atan2(siny_cosp, cosy_cosp);
 
-    const sinp = 2 * (w * y - z * x);
-    let pitch: number;
-    if (Math.abs(sinp) >= 1) {
-        pitch = Math.sign(sinp) * Math.PI / 2;
-    } else {
-        pitch = Math.asin(sinp);
-    }
+  const sinp = 2 * (w * y - z * x);
+  const pitch = Math.abs(sinp) >= 1 ? (Math.sign(sinp) * Math.PI) / 2 : Math.asin(sinp);
 
-    const sinr_cosp = 2 * (w * x + y * z);
-    const cosr_cosp = 1 - 2 * (x * x + y * y);
-    const roll = Math.atan2(sinr_cosp, cosr_cosp);
+  const sinr_cosp = 2 * (w * x + y * z);
+  const cosr_cosp = 1 - 2 * (x * x + y * y);
+  const roll = Math.atan2(sinr_cosp, cosr_cosp);
 
-    return [yaw, pitch, roll];
+  return [yaw, pitch, roll];
 }
 
 /**
- * Parse string of matrix to array of number
- * @param matrix 
- * @returns 
+ * Extracts a GPS heading (degrees, [0, 360)) from a quaternion.
+ * Converts ENU yaw (Gazebo convention) to NED heading.
  */
-export const parseMatrix = (matrix: string | number[][]): number[][] => {
-    if (typeof matrix === "string") {
-        try {
-            const parsed = JSON.parse(matrix);
-            if (Array.isArray(parsed) && parsed.every(row => Array.isArray(row))) {
-                return parsed;
-            } else {
-                throw new Error("Parsed matrix is not a 2D array");
-            }
-        } catch (e) {
-            console.error("Failed to parse matrix:", e);
-            throw new Error("Invalid matrix format");
-        }
-    }
+export const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : "Internal server error";
 
-    return matrix;
-};
+export function quaternionToGpsHeading(qx: number, qy: number, qz: number, qw: number): number {
+  const siny_cosp = 2 * (qw * qz + qx * qy);
+  const cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
+  const yawRad = Math.atan2(siny_cosp, cosy_cosp);
+
+  const headingDeg = 90 - (yawRad * 180) / Math.PI;
+  return (headingDeg + 360) % 360;
+}

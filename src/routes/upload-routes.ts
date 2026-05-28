@@ -32,55 +32,52 @@
  *
  */
 
-import { Router, Request, Response } from 'express';
-import upload from '../interfaces/upload';
-import { Express } from 'express';
-import path from 'path';
-import fs from 'fs';
-import { modelsPath } from '../utils';
+import { Router, Request, Response } from "express";
+import upload from "../middleware/upload";
+import { Express } from "express";
+import path from "path";
+import fs from "fs";
+import { modelsPath } from "../utils";
 
 const router = Router();
 
-// Upload files
-router.post('/upload', upload.any(), (req: Request, res: Response): void => {
-    const modelName = req.body.modelName;
-    const files = req.files as Express.Multer.File[];
+router.post("/upload", upload.any(), async (req: Request, res: Response): Promise<void> => {
+  const modelName = req.body.modelName;
+  const files = req.files as Express.Multer.File[];
 
-    if (!modelName || !files || files.length === 0) {
-        res.status(400).json({ message: 'Missing modelName or files' });
-        return;
+  if (!modelName || !files || files.length === 0) {
+    res.status(400).json({ success: false, message: "Missing modelName or files" });
+    return;
+  }
+
+  const modelDir = path.join(modelsPath, modelName);
+  await fs.promises.mkdir(modelDir, { recursive: true });
+
+  const movedPaths: Record<string, string> = {};
+
+  for (const file of files) {
+    let newFileName: string;
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    if (file.fieldname === "stlFile") {
+      newFileName = `${modelName}.stl`;
+    } else if ([".jpg", ".jpeg", ".png", ".webp"].includes(ext)) {
+      newFileName = `preview`;
+    } else {
+      newFileName = `${file.fieldname}${path.extname(file.originalname)}`;
     }
 
-    const modelDir = path.join(modelsPath, modelName);
-    if (!fs.existsSync(modelDir)) {
-        fs.mkdirSync(modelDir, { recursive: true });
-    }
+    const newPath = path.join(modelDir, newFileName);
+    await fs.promises.rename(file.path, newPath);
+    movedPaths[file.fieldname] = newPath;
+  }
 
-    const movedPaths: Record<string, string> = {};
-
-    files.forEach((file) => {
-        let newFileName: string;
-        const ext = path.extname(file.originalname).toLowerCase();
-
-        if (file.fieldname === 'stlFile') {
-            newFileName = `${modelName}.stl`;
-        } else if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
-            newFileName = `preview`;
-        } else {
-            newFileName = `${file.fieldname}${path.extname(file.originalname)}`;
-        }
-
-        const newPath = path.join(modelDir, newFileName);
-        fs.renameSync(file.path, newPath);
-        movedPaths[file.fieldname] = newPath;
-    });
-
-
-    res.status(200).json({
-        message: 'Files uploaded and moved successfully',
-        modelName,
-        files: movedPaths,
-    });
+  res.status(200).json({
+    success: true,
+    message: "Files uploaded and moved successfully",
+    modelName,
+    files: movedPaths,
+  });
 });
 
 export default router;

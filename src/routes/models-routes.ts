@@ -10,7 +10,7 @@
 
 /**
  * ************************************************************************************
- * *******************************   MODELS MANAGEMENT MODULE   ************************
+ * *******************************   MODELS ROUTES   **********************************
  * ************************************************************************************
  *
  * Provides an API for managing 3D models and simulation files for Gazebo and Xdyn.
@@ -35,202 +35,213 @@
  *
  */
 
-
 import fs from "fs";
 import path from "path";
 import { Router, Request, Response } from "express";
-import { modelsPath, parseMatrix } from "../utils";
-import * as SdfClass from "../models/sdf";
-import * as xdynClass from "../models/xdyn-yaml";
-import { Vector3 } from '../interfaces/geometry';
+import { modelsPath, errorMessage } from "../utils";
+import { SDF } from "../models/sdf";
+import {
+  XdynYaml,
+  Wave,
+  Propeller,
+  ControlSurface,
+  PropellerWithRudder,
+} from "../models/xdyn-yaml";
+import { Vector3 } from "../interfaces/geometry";
+import { Sensor } from "../interfaces/sensor";
 
 const router = Router();
 
-const listModels = (req: Request, res: Response): void => {
-    try {
-        const entries = fs.readdirSync(modelsPath, { withFileTypes: true });
-        const folders = entries.filter(entry => entry.isDirectory()).map(entry => entry.name);
-        res.json(folders);
-    } catch (error: any) {
-        res.status(500).json({ error: "Error reading directory", details: error.message || error });
-    }
-};
-
-const deleteModel = async (req: Request, res: Response): Promise<void> => {
-    const modelName = req.query.modelName as string;
-    if (!modelName) {
-        res.status(400).send("Error: modelName query parameter is required.");
-        return;
-    }
-    try {
-        await fs.promises.rm(path.join(modelsPath, modelName), { recursive: true, force: true });
-        res.status(200).send(`Model ${modelName} deleted successfully.`);
-    } catch (err) {
-        res.status(500).send(`Error deleting model ${modelName}: ${err}`);
-    }
-};
+// ─── Request Types ───────────────────────────────────────────
 
 export interface CreateModelRequestBody {
-    modelName: string;
-    image: string;
-    stl: string;
-    sensors: SdfClass.Sensor[];
-
-    xdyn: {
-        name: string;
-        wave: xdynClass.Wave;
-        meshDir: string;
-        bodyFrameRelativeToMeshFrame: Vector3;
-        hydroForcesCalcPoint: Vector3;
-        centerOfInertia: Vector3;
-        inertiaMatrixAtBuoyancy: number[][];
-        addedMass: number[][];
-        linearDamping: number[][];
-        quadraticDamping: number[][];
-        resistanceCurveSpeed: number[];
-        resistanceCurveResistance: number[];
-        propellers: xdynClass.Propeller[];
-        rudders: xdynClass.ControllSurface[];
-        propellerWithRudders: xdynClass.PropellerWithRudder[];
-    };
+  modelName: string;
+  image: string;
+  stl: string;
+  sensors: Sensor[];
+  xdyn?: {
+    name: string;
+    wave: Wave;
+    meshDir: string;
+    bodyFrameRelativeToMeshFrame: Vector3;
+    hydroForcesCalcPoint: Vector3;
+    centerOfInertia: Vector3;
+    inertiaMatrixAtBuoyancy: string | number[][];
+    addedMass: string | number[][];
+    linearDamping: string | number[][];
+    quadraticDamping: string | number[][];
+    resistanceCurveSpeed: string | number[];
+    resistanceCurveResistance: string | number[];
+    propellers: Propeller[];
+    rudders: ControlSurface[];
+    propellerWithRudders: PropellerWithRudder[];
+  };
 }
 
-// JSON req body received
-// {
-//     modelName: 'testing',
-//     sensors: [],
-//     xdyn: {
-//         name: 'testing',
-//             wave: { angle: 0 },
-//         meshDir: null,
-//             bodyFrameRelativeToMeshFrame: { x: 0, y: 0, z: 0 },
-//         hydroForcesCalcPoint: { x: 0, y: 0, z: 0 },
-//         centerOfInertia: { x: 0, y: 0, z: 0 },
-//         inertiaMatrixAtBuoyancy: '[[1,0,0,0,0,0],[0,1,0,0,0,0],[0,0,1,0,0,0],[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1]]',
-//             addedMass: '[[1,0,0,0,0,0],[0,1,0,0,0,0],[0,0,1,0,0,0],[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1]]',
-//                 linearDamping: '[[1,0,0,0,0,0],[0,1,0,0,0,0],[0,0,1,0,0,0],[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1]]',
-//                     quadraticDamping: '[[1,0,0,0,0,0],[0,1,0,0,0,0],[0,0,1,0,0,0],[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1]]',
-//                         resistanceCurveSpeed: [],
-//                             resistanceCurveResistance: [],
-//                                 propellers: [[Object]],
-//                                     rudders: [[Object]],
-//                                         propellerWithRudders: [[Object]]
-//     }
-// }
+// ─── Validation ──────────────────────────────────────────────
 
-const safeParse2DMatrix = (input: string | number[][]): number[][] => {
-    return typeof input === 'string' ? JSON.parse(input) : input;
+type ValidationResult = { valid: true } | { valid: false; error: string };
+
+const invalid = (error: string): ValidationResult => ({ valid: false, error });
+
+const validateCreateModelRequest = (body: CreateModelRequestBody): ValidationResult => {
+  if (!body.modelName || typeof body.modelName !== "string")
+    return invalid("Missing or invalid field: modelName");
+  if (!body.stl || typeof body.stl !== "string") return invalid("Missing or invalid field: stl");
+  if (!body.image || typeof body.image !== "string")
+    return invalid("Missing or invalid field: image");
+  if (body.xdyn && !body.xdyn.name) return invalid("Missing field: xdyn.name");
+  return { valid: true };
 };
 
-const safeParse1DMatrix = (input: string | number[]): number[] => {
-    return typeof input === 'string' ? JSON.parse(input) : input;
+// ─── Helpers ─────────────────────────────────────────────────
+
+const safeParse2DMatrix = (input: string | number[][]): number[][] =>
+  typeof input === "string" ? JSON.parse(input) : input;
+
+const safeParse1DArray = (input: string | number[]): number[] =>
+  typeof input === "string" ? JSON.parse(input) : input;
+
+const ensureDirectory = (dirPath: string): Promise<void> =>
+  fs.promises.mkdir(dirPath, { recursive: true }).then(() => undefined);
+
+const buildSdfFile = (modelName: string, stl: string, image: string, sensors: Sensor[]): string => {
+  const sdf = new SDF();
+  sdf.name = modelName;
+  sdf.stlUrl = stl;
+  sdf.imagePath = image;
+  sdf.sensors = sensors;
+  return sdf.createSdfFile();
 };
 
-const createModel = async (req: Request, res: Response): Promise<void> => {
-    const {
-        modelName,
-        stl,
-        sensors,
-        image,
-        xdyn,
-    } = req.body as CreateModelRequestBody;
+const buildXdynFile = (xdyn: NonNullable<CreateModelRequestBody["xdyn"]>): string => {
+  const yaml = new XdynYaml();
 
-    // if (!modelName || !stl || !image) {
-    //     res.status(400).send("Missing required fields in request body.");
-    //     return;
-    // }
+  yaml.name = xdyn.name;
+  yaml.wave = xdyn.wave;
+  yaml.bodyFrameRelativeToMeshFrame = xdyn.bodyFrameRelativeToMeshFrame;
+  yaml.hydroForcesCalcPoint = xdyn.hydroForcesCalcPoint;
+  yaml.centerOfInertia = xdyn.centerOfInertia;
+  yaml.inertiaMatrixAtBuoyancy = safeParse2DMatrix(xdyn.inertiaMatrixAtBuoyancy);
+  yaml.addedMass = safeParse2DMatrix(xdyn.addedMass);
+  yaml.linearDamping = safeParse2DMatrix(xdyn.linearDamping);
+  yaml.quadraticDamping = safeParse2DMatrix(xdyn.quadraticDamping);
+  yaml.resistanceCurveSpeed = safeParse1DArray(xdyn.resistanceCurveSpeed);
+  yaml.resistanceCurveResistance = safeParse1DArray(xdyn.resistanceCurveResistance);
+  yaml.propellers = xdyn.propellers;
+  yaml.controlSurfaces = xdyn.rudders;
+  yaml.propellerWithRudders = xdyn.propellerWithRudders;
 
-    const folderPath = modelsPath + '/' + modelName;
+  return yaml.createYaml();
+};
+
+// ─── Routes ──────────────────────────────────────────────────
+
+/**
+ * GET /models
+ * Lists all model directories.
+ */
+router.get("/models", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const entries = await fs.promises.readdir(modelsPath, { withFileTypes: true });
+    const models = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+
+    res.json({ success: true, count: models.length, models });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      message: "Error reading models directory",
+      details: errorMessage(err),
+    });
+  }
+});
+
+/**
+ * GET /model/:name
+ * Gets info about a specific model.
+ */
+router.get("/model/:name", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name } = req.params;
+    const modelPath = path.join(modelsPath, name);
+
     try {
-        if (!fs.existsSync(folderPath)) {
-            fs.mkdirSync(folderPath, { recursive: true });
-            console.log('Folder created:', folderPath);
-        } else {
-            console.log('Folder already exists:', folderPath);
-        }
-    } catch (err) {
-        console.error('Error creating folder:', err);
-        res.status(500).send(`Failed to create folder for model "${modelName}"`);
-        return;
+      await fs.promises.access(modelPath);
+    } catch {
+      res.status(404).json({ success: false, message: `Model '${name}' not found` });
+      return;
     }
 
-    try {
-        // Create gazebo sdf file
-        const sdf = new SdfClass.SDF();
-        sdf.name = modelName;
-        sdf.stl_url = stl;
-        sdf.sensors = sensors;
-        sdf.image_path = image;
-        const sdf_string = sdf.createSdfFile();
+    const files = await fs.promises.readdir(modelPath);
+    res.json({ success: true, model: name, files });
+  } catch (err: unknown) {
+    res.status(500).json({ success: false, message: errorMessage(err) });
+  }
+});
 
-        fs.writeFile(folderPath + '/model.sdf', sdf_string, 'utf8', (err) => {
-            if (err) {
-                console.error('Error writing model sdf file:', err);
-                res.status(500).send(`Failed to create sdf for model "${modelName}"`);
-            } else {
-                console.log('Sdf file written successfully.');
-            }
-        });
-    } catch (err) {
-        console.error('Error creating sdf:', err);
-        res.status(500).send(`Failed to create gazebo sdf for model "${modelName}"`);
-        return;
+/**
+ * POST /model
+ * Creates a new model (SDF + optionally Xdyn YAML).
+ */
+router.post("/model", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as CreateModelRequestBody;
+
+    const validation = validateCreateModelRequest(body);
+    if (!validation.valid) {
+      res.status(400).json({ success: false, message: validation.error });
+      return;
     }
 
-    // Create xdyn file
+    const { modelName, stl, sensors, image, xdyn } = body;
+    const folderPath = path.join(modelsPath, modelName);
+
+    await ensureDirectory(folderPath);
+
+    const sdfContent = buildSdfFile(modelName, stl, image, sensors);
+    await fs.promises.writeFile(path.join(folderPath, "model.sdf"), sdfContent, "utf-8");
+
     if (xdyn) {
-        try {
-            const xdynYaml = new xdynClass.XdynYaml();
-            xdynYaml.setName(xdyn.name);
-            xdynYaml.setWave(xdyn.wave);
-            xdynYaml.setBodyFrameRelativeToMeshFrame({
-                x: xdyn.bodyFrameRelativeToMeshFrame.x,
-                y: xdyn.bodyFrameRelativeToMeshFrame.y,
-                z: xdyn.bodyFrameRelativeToMeshFrame.z
-            });
-            xdynYaml.setHydroForcesCalcPoint({
-                x: xdyn.hydroForcesCalcPoint.x,
-                y: xdyn.hydroForcesCalcPoint.y,
-                z: xdyn.hydroForcesCalcPoint.z
-            });
-            xdynYaml.setCenterOfInertia({
-                x: xdyn.centerOfInertia.x,
-                y: xdyn.centerOfInertia.y,
-                z: xdyn.centerOfInertia.z
-            });
-            xdynYaml.setInertiaMatrixAtBuoyancy(parseMatrix(xdyn.inertiaMatrixAtBuoyancy));
-            xdynYaml.setAddedMass(parseMatrix(xdyn.addedMass));
-            xdynYaml.setLinearDamping(parseMatrix(xdyn.linearDamping));
-            xdynYaml.setQuadraticDamping(parseMatrix(xdyn.quadraticDamping));
-            xdynYaml.setResistanceCurveSpeed(xdyn.resistanceCurveSpeed);
-            xdynYaml.setResistanceCurveResistance(xdyn.resistanceCurveResistance);
-            xdynYaml.setPropellers(xdyn.propellers);
-            xdynYaml.setRudders(xdyn.rudders);
-            xdynYaml.setPropellerWithRudders(xdyn.propellerWithRudders);
-
-            const yaml_string = xdynYaml.createYaml();
-            fs.writeFile(folderPath + '/xdyn.yml', yaml_string, 'utf8', (err) => {
-                if (err) {
-                    console.error('Error writing model xdyn file:', err);
-                } else {
-                    console.log('Xdyn file written successfully.');
-                }
-            });
-        } catch (err) {
-            console.error('Error creating xdyn yaml:', err);
-            res.status(500).send(`Failed to create xdyn yaml for model "${modelName}"`);
-            return;
-        }
+      const xdynContent = buildXdynFile(xdyn);
+      await fs.promises.writeFile(path.join(folderPath, "xdyn.yml"), xdynContent, "utf-8");
     }
-    res.status(200).json({ message: `Model '${modelName}' created successfully.` });
-};
 
-router.get("/models", listModels);
+    res.status(201).json({
+      success: true,
+      message: `Model '${modelName}' created successfully`,
+    });
+  } catch (err: unknown) {
+    console.error("Error creating model:", err);
+    res.status(500).json({ success: false, message: errorMessage(err) });
+  }
+});
 
-router.post("/model", createModel);
+/**
+ * DELETE /model/:name
+ * Deletes a model by name.
+ */
+router.delete("/model/:name", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name } = req.params;
+    const modelPath = path.join(modelsPath, name);
 
-router.delete("/model", deleteModel);
+    try {
+      await fs.promises.access(modelPath);
+    } catch {
+      res.status(404).json({ success: false, message: `Model '${name}' not found` });
+      return;
+    }
 
+    await fs.promises.rm(modelPath, { recursive: true, force: true });
 
+    res.status(200).json({
+      success: true,
+      message: `Model '${name}' deleted successfully`,
+    });
+  } catch (err: unknown) {
+    console.error("Error deleting model:", err);
+    res.status(500).json({ success: false, message: errorMessage(err) });
+  }
+});
 
 export default router;

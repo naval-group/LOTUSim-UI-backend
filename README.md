@@ -2,8 +2,9 @@
 
 ## Installation
 
-```shell
-source /opt/ros/humble/setup.bash 
+```
+source /opt/ros/humble/setup.bash
+source
 npm install ${LOTUSIM_WS}/install/setup.bash
 npx generate-ros-messages
 npx ts-node src/main.ts
@@ -11,9 +12,9 @@ npx ts-node src/main.ts
 
 ## Dev Notes
 
-1. API for post create models
+1. api for post create models
 
-```json
+```
 [
     {
         model_name: "name"

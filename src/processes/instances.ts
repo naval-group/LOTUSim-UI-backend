@@ -14,7 +14,7 @@
  * ************************************************************************************
  *
  * NOTE: This module is under active development.
- * 
+ *
  * Provides classes to represent and manage system processes and LOTUSIM simulation instances.
  *
  * Features:
@@ -28,33 +28,33 @@
  * Notes:
  * - This module is primarily used for managing LOTUSIM simulation instances.
  * - Currently no system-level process management beyond the in-memory representation.
- * 
+ *
  */
 
 export class Process {
-    name: string;
-    pid: number;
+  name: string;
+  pid: number;
 
-    constructor(name: string, pid: number) {
-        this.name = name;
-        this.pid = pid;
-    }
+  constructor(name: string, pid: number) {
+    this.name = name;
+    this.pid = pid;
+  }
 }
 
-export class Instance {
-    name: string;
-    processes: Process[];
+export class LotusimInstance {
+  name: string;
+  processes: Process[];
 
-    constructor(name: string, processes: Process[]) {
-        this.name = name;
-        this.processes = processes;
-    }
+  constructor(name: string, processes: Process[]) {
+    this.name = name;
+    this.processes = processes;
+  }
 
-    addProcess(process: Process) {
-        this.processes.push(process);
-    }
+  addProcess(process: Process) {
+    this.processes.push(process);
+  }
 
-    deleteProcess(name: string) {
-        this.processes = this.processes.filter(process => process.name !== name);
-    }
+  deleteProcess(name: string) {
+    this.processes = this.processes.filter((process) => process.name !== name);
+  }
 }

@@ -22,11 +22,11 @@
  * - Supports propellers, rudders, and combined propeller-rudder setups with full geometric and
  *   hydrodynamic properties.
  * - Generates structured YAML output for Xdyn simulations.
- * 
+ *
  */
 
-import { Pose, Vector3 } from '../interfaces/geometry'
-import { quaternionToEulerZYX, radToDeg } from '../utils';
+import { Pose, Vector3 } from "../interfaces/geometry";
+import { quaternionToEulerZYX } from "../utils";
 
 // Xdyn stuff
 
@@ -34,7 +34,7 @@ export interface Wave {
   angle: number;
 }
 
-type Rotation = 'clockwise' | 'counterclockwise';
+type Rotation = "clockwise" | "counterclockwise";
 
 export interface Propeller {
   name: string;
@@ -48,7 +48,8 @@ export interface Propeller {
   bladeAreaRatio: number;
   diameter: number;
 }
-export interface ControllSurface {
+
+export interface ControlSurface {
   name: string;
   pose: Pose;
   referenceArea: number;
@@ -56,19 +57,19 @@ export interface ControllSurface {
   liftCoefficient: number[];
   dragCoefficient: number[];
   takeWavesOrbitalVelocityIntoAccount: boolean;
-};
+}
 
 export interface PropellerWithRudder {
   name: string;
 
   // Propeller properties
   propellerPose: Pose;
-  wakeCoefficient: number;                    // w
-  relativeRotativeEfficiency: number;         // etaR
-  thrustDeductionFactor: number;              // t
+  wakeCoefficient: number; // w
+  relativeRotativeEfficiency: number; // etaR
+  thrustDeductionFactor: number; // t
   rotation: Rotation;
   numberOfBlades: number;
-  bladeAreaRatio: number;                     // AE/A0
+  bladeAreaRatio: number; // AE/A0
   diameter: number;
 
   // Rudder properties
@@ -77,426 +78,346 @@ export interface PropellerWithRudder {
   effectiveAspectRatioFactor: number;
   liftTuningCoefficient: number;
   dragTuningCoefficient: number;
-  rudderPose: Pose;                   // in body frame
+  rudderPose: Pose; // in body frame
 }
 
-
 export class XdynYaml {
-  private name: string = "";
-  private wave: Wave;
-  private bodyFrameRelativeToMeshFrame: Vector3;
-  private hydroForcesCalcPoint: Vector3;
-  private centerOfInertia: Vector3;
-  private inertiaMatrixAtBuoyancy: number[][] = [];
-  private addedMass: number[][] = [];
-  private linearDamping: number[][] = [];
-  private quadraticDamping: number[][] = [];
-  private resistanceCurveSpeed: number[] = [];
-  private resistanceCurveResistance: number[] = [];
-  private propellers: Propeller[] = [];
-  private controllSurfaces: ControllSurface[] = [];
-  private propellerWithRudders: PropellerWithRudder[] = [];
+  public name: string = "";
+  public wave: Wave = { angle: 0 };
+  public bodyFrameRelativeToMeshFrame: Vector3 = { x: 0, y: 0, z: 0 };
+  public hydroForcesCalcPoint: Vector3 = { x: 0, y: 0, z: 0 };
+  public centerOfInertia: Vector3 = { x: 0, y: 0, z: 0 };
+  public resistanceCurveSpeed: number[] = [];
+  public resistanceCurveResistance: number[] = [];
+  public propellers: Propeller[] = [];
+  public controlSurfaces: ControlSurface[] = [];
+  public propellerWithRudders: PropellerWithRudder[] = [];
 
-  constructor() {
-    this.bodyFrameRelativeToMeshFrame = { x: 0, y: 0, z: 0 };
-    this.hydroForcesCalcPoint = { x: 0, y: 0, z: 0 };
-    this.centerOfInertia = { x: 0, y: 0, z: 0 };
-    this.wave = { angle: 0 };
-  }
+  private _inertiaMatrixAtBuoyancy: number[][] = [];
+  private _addedMass: number[][] = [];
+  private _linearDamping: number[][] = [];
+  private _quadraticDamping: number[][] = [];
 
-  // Getters and Setters
-
-  public getName(): string {
-    return this.name;
-  }
-
-  public setName(name: string): void {
-    this.name = name;
-  }
-
-  public getWave(): Wave {
-    return this.wave;
-  }
-
-  public setWave(wave: Wave): void {
-    this.wave = wave;
-  }
-
-  public getBodyFrameRelativeToMeshFrame(): Vector3 {
-    return this.bodyFrameRelativeToMeshFrame;
-  }
-
-  public setBodyFrameRelativeToMeshFrame(vec: Vector3): void {
-    this.bodyFrameRelativeToMeshFrame = vec;
-  }
-
-  public getHydroForcesCalcPoint(): Vector3 {
-    return this.hydroForcesCalcPoint;
-  }
-
-  public setHydroForcesCalcPoint(vec: Vector3): void {
-    this.hydroForcesCalcPoint = vec;
-  }
-
-  public getCenterOfInertia(): Vector3 {
-    return this.centerOfInertia;
-  }
-
-  public setCenterOfInertia(vec: Vector3): void {
-    this.centerOfInertia = vec;
-  }
-
-  public getInertiaMatrixAtBuoyanc(): number[][] {
-    return this.inertiaMatrixAtBuoyancy;
-  }
-
-  public setInertiaMatrixAtBuoyancy(matrix: number[][]): void {
-    this.inertiaMatrixAtBuoyancy = matrix;
-  }
-
-  public getAddedMass(): number[][] {
-    return this.addedMass;
-  }
-
-  public setAddedMass(matrix: number[][]): void {
-    this.addedMass = matrix;
-  }
-
-  public getLinearDamping(): number[][] {
-    return this.linearDamping;
-  }
-
-  public setLinearDamping(matrix: number[][]): void {
-    this.linearDamping = matrix;
-  }
-
-  public getQuadraticDamping(): number[][] {
-    return this.quadraticDamping;
-  }
-
-  public setQuadraticDamping(matrix: number[][]): void {
-    this.quadraticDamping = matrix;
-  }
-
-  public getResistanceCurveSpeed(): number[] {
-    return this.resistanceCurveSpeed;
-  }
-
-  public setResistanceCurveSpeed(speeds: number[]): void {
-    this.resistanceCurveSpeed = speeds;
-  }
-
-  public getResistanceCurveResistance(): number[] {
-    return this.resistanceCurveResistance;
-  }
-
-  public setResistanceCurveResistance(resistances: number[]): void {
-    this.resistanceCurveResistance = resistances;
-  }
-
-  public getPropellers(): Propeller[] {
-    return this.propellers;
-  }
-
-  public setPropellers(propellers: Propeller[]): void {
-    this.propellers = propellers;
-  }
-
-  public getControllSurfaces(): ControllSurface[] {
-    return this.controllSurfaces;
-  }
-
-  public setRudders(controllSurfaces: ControllSurface[]): void {
-    this.controllSurfaces = controllSurfaces;
-  }
-
-  public getPropellerWithRudders(): PropellerWithRudder[] {
-    return this.propellerWithRudders;
-  }
-
-  public setPropellerWithRudders(pwr: PropellerWithRudder[]): void {
-    this.propellerWithRudders = pwr;
-  }
-
-  private vector3ToYamlVec(vec: Vector3, unit: string = 'm', tabs: number = 0): string {
-    const indent = '  '.repeat(tabs); // 2 spaces per tab level
-    return `
-${indent} x: { value: ${vec.x}, unit: ${unit} }
-${indent} y: { value: ${vec.y}, unit: ${unit} }
-${indent} z: { value: ${vec.z}, unit: ${unit} } `;
-  }
-
-
-  private matrixToYaml(
-    name: string,
-    matrix: number[][],
-    frame: string = 'body',
-    indent: number = 0
-  ): string {
-    if (matrix.length !== 6 || matrix.some(row => row.length !== 6)) {
+  private static validate6x6(name: string, matrix: number[][]): void {
+    if (matrix.length !== 6 || matrix.some((row) => row.length !== 6)) {
       throw new Error(`${name} must be a 6x6 matrix`);
     }
-    const indentStr = '  '.repeat(indent);
-    const subIndent = '  '.repeat(indent + 1);
+  }
 
-    let rows = matrix
-      .map((row, i) => `${subIndent}row ${i + 1}: [${row.join(', ')}]`)
-      .join('\n');
+  get inertiaMatrixAtBuoyancy(): number[][] {
+    return this._inertiaMatrixAtBuoyancy;
+  }
+  set inertiaMatrixAtBuoyancy(matrix: number[][]) {
+    XdynYaml.validate6x6("inertiaMatrixAtBuoyancy", matrix);
+    this._inertiaMatrixAtBuoyancy = matrix;
+  }
 
-    return `${indentStr}${name}:
-${subIndent} frame: ${frame}
-${rows} `;
+  get addedMass(): number[][] {
+    return this._addedMass;
+  }
+  set addedMass(matrix: number[][]) {
+    XdynYaml.validate6x6("addedMass", matrix);
+    this._addedMass = matrix;
+  }
+
+  get linearDamping(): number[][] {
+    return this._linearDamping;
+  }
+  set linearDamping(matrix: number[][]) {
+    XdynYaml.validate6x6("linearDamping", matrix);
+    this._linearDamping = matrix;
+  }
+
+  get quadraticDamping(): number[][] {
+    return this._quadraticDamping;
+  }
+  set quadraticDamping(matrix: number[][]) {
+    XdynYaml.validate6x6("quadraticDamping", matrix);
+    this._quadraticDamping = matrix;
+  }
+
+  // ─── Private formatting helpers ───────────────────────────────────────────
+
+  private vector3ToYamlVec(vec: Vector3, unit = "m", indent = 0): string {
+    const pad = "  ".repeat(indent);
+    return [
+      `${pad}x: { value: ${vec.x}, unit: ${unit} }`,
+      `${pad}y: { value: ${vec.y}, unit: ${unit} }`,
+      `${pad}z: { value: ${vec.z}, unit: ${unit} }`,
+    ].join("\n");
+  }
+
+  private matrixToYaml(name: string, matrix: number[][], frame: string, indent: number): string {
+    const pad = "  ".repeat(indent);
+    const innerPad = "  ".repeat(indent + 1);
+    const rows = matrix.map((row, i) => `${innerPad}row ${i + 1}: [${row.join(", ")}]`).join("\n");
+
+    return [`${pad}${name}:`, `${innerPad}frame: ${frame}`, rows].join("\n");
   }
 
   private resistanceCurveToYaml(): string {
-    const speeds = this.resistanceCurveSpeed;
-    const resistances = this.resistanceCurveResistance;
-
-    if (speeds.length === 0 || resistances.length === 0) {
-      return '';
+    if (this.resistanceCurveSpeed.length === 0 || this.resistanceCurveResistance.length === 0) {
+      return "";
     }
 
-    const speedsStr = speeds.map((v) => v.toFixed(3)).join(',\n                ');
-    const resStr = resistances.map((v) => v.toExponential(3)).join(',\n                ');
-    return `
-  - model: resistance curve
-speed:
-{
-  unit: m / s,
-    values:
-  [
-    ${speedsStr}
-  ],
-          }
-resistance:
-{
-  unit: N,
-    values:
-  [
-    ${resStr}
-  ],
-          } `;
+    const speedValues = this.resistanceCurveSpeed
+      .map((v) => `              ${v.toFixed(3)}`)
+      .join(",\n");
+    const resistanceValues = this.resistanceCurveResistance
+      .map((v) => `              ${v.toExponential(3)}`)
+      .join(",\n");
+
+    return [
+      "  - model: resistance curve",
+      "    speed:",
+      "      unit: m/s",
+      "      values:",
+      "        [",
+      speedValues,
+      "        ]",
+      "    resistance:",
+      "      unit: N",
+      "      values:",
+      "        [",
+      resistanceValues,
+      "        ]",
+    ].join("\n");
   }
 
-  private formatPropeller(propeller: Propeller, name: string, frame: string = 'mesh(TestShip)'): string {
+  private formatPropeller(propeller: Propeller, frame: string): string {
     const pos = propeller.pose.position;
     const orientation = quaternionToEulerZYX(propeller.pose.orientation);
 
-    return `
-  - name: ${name}
-model: wageningen B - series
-        position of propeller frame:
-frame: ${frame}
-x: { value: ${pos.x.toFixed(3)}, unit: m }
-y: { value: ${pos.y.toFixed(3)}, unit: m }
-z: { value: ${pos.z.toFixed(3)}, unit: m }
-phi: { value: ${(orientation[2]).toFixed(3)}, unit: rad }
-theta: { value: ${(orientation[1]).toFixed(3)}, unit: rad }
-psi: { value: ${(orientation[0]).toFixed(3)}, unit: rad }
-        wake coefficient w: 0.9
-        relative rotative efficiency eta: ${propeller.relativeRotativeEfficiency}
-        thrust deduction factor t: ${propeller.thrustDeductionFactor}
-rotation: ${propeller.rotation}
-        number of blades: ${propeller.numberOfBlades}
-        blade area ratio AE / A0: ${propeller.bladeAreaRatio}
-diameter: { value: ${propeller.diameter}, unit: m } `;
+    return [
+      `  - name: ${propeller.name}`,
+      `    model: wageningen B-series`,
+      `    position of propeller frame:`,
+      `      frame: ${frame}`,
+      `      x: { value: ${pos.x.toFixed(3)}, unit: m }`,
+      `      y: { value: ${pos.y.toFixed(3)}, unit: m }`,
+      `      z: { value: ${pos.z.toFixed(3)}, unit: m }`,
+      `      phi:   { value: ${orientation[2].toFixed(3)}, unit: rad }`,
+      `      theta: { value: ${orientation[1].toFixed(3)}, unit: rad }`,
+      `      psi:   { value: ${orientation[0].toFixed(3)}, unit: rad }`,
+      `    wake coefficient w: ${propeller.wakeCoefficient}`,
+      `    relative rotative efficiency eta: ${propeller.relativeRotativeEfficiency}`,
+      `    thrust deduction factor t: ${propeller.thrustDeductionFactor}`,
+      `    rotation: ${propeller.rotation}`,
+      `    number of blades: ${propeller.numberOfBlades}`,
+      `    blade area ratio AE/A0: ${propeller.bladeAreaRatio}`,
+      `    diameter: { value: ${propeller.diameter}, unit: m }`,
+    ].join("\n");
   }
 
-  private formatControllSurface(controlSurface: ControllSurface, name: string = 'centreboard'): string {
+  private formatControlSurface(controlSurface: ControlSurface): string {
     const pos = controlSurface.pose.position;
     const orientation = quaternionToEulerZYX(controlSurface.pose.orientation);
 
-    return `
-  - model: hydrodynamic polar
-name: ${name}
-        position of calculation frame:
-frame: body
-x: { value: ${pos.x.toFixed(3)}, unit: m }
-y: { value: ${pos.y.toFixed(3)}, unit: m }
-z: { value: ${pos.z.toFixed(3)}, unit: m }
-phi: { value: ${(orientation[2]).toFixed(3)}, unit: rad }
-theta: { value: ${(orientation[1]).toFixed(3)}, unit: rad }
-psi: { value: ${(orientation[0]).toFixed(3)}, unit: rad }
-        reference area: { value: ${controlSurface.referenceArea}, unit: m ^ 2 }
-        angle of attack: { unit: deg, values: [0, 7, 9, 12, 28, 60, 90, 120, 150, 180] }
-        lift coefficient: [0.00000, 0.94828, 1.13793, 1.25000, 1.42681, 1.38319, 1.26724, 0.93103, 0.38793, -0.11207]
-        drag coefficient: [0.03448, 0.01724, 0.01466, 0.01466, 0.02586, 0.11302, 0.38250, 0.96888, 1.31578, 1.34483]
-        take waves orbital velocity into account: false`;
+    const aoaValues = controlSurface.angleOfAttack.join(", ");
+    const liftValues = controlSurface.liftCoefficient.map((v) => v.toFixed(5)).join(", ");
+    const dragValues = controlSurface.dragCoefficient.map((v) => v.toFixed(5)).join(", ");
+
+    return [
+      `  - model: hydrodynamic polar`,
+      `    name: ${controlSurface.name}`,
+      `    position of calculation frame:`,
+      `      frame: body`,
+      `      x: { value: ${pos.x.toFixed(3)}, unit: m }`,
+      `      y: { value: ${pos.y.toFixed(3)}, unit: m }`,
+      `      z: { value: ${pos.z.toFixed(3)}, unit: m }`,
+      `      phi:   { value: ${orientation[2].toFixed(3)}, unit: rad }`,
+      `      theta: { value: ${orientation[1].toFixed(3)}, unit: rad }`,
+      `      psi:   { value: ${orientation[0].toFixed(3)}, unit: rad }`,
+      `    reference area: { value: ${controlSurface.referenceArea}, unit: m^2 }`,
+      `    angle of attack: { unit: deg, values: [${aoaValues}] }`,
+      `    lift coefficient: [${liftValues}]`,
+      `    drag coefficient: [${dragValues}]`,
+      `    take waves orbital velocity into account: ${controlSurface.takeWavesOrbitalVelocityIntoAccount}`,
+    ].join("\n");
   }
 
-  private formatPropellerWithRudder(pwr: PropellerWithRudder, name: string): string {
-    const propPos = pwr.propellerPose;
-    const propPosition = propPos.position;
-    const propOrientation = propPos.orientation;
+  private formatPropellerWithRudder(pwr: PropellerWithRudder): string {
+    const propPos = pwr.propellerPose.position;
+    const rudderPos = pwr.rudderPose.position;
 
-    const rudderPos = pwr.rudderPose;
-    const rudderPosition = rudderPos.position;
-    const rudderOrientation = rudderPos.orientation;
-
-    return `
-  - name: ${name}
-model: propeller + rudder
-        position of propeller frame:
-frame: ${this.name}
-x: { value: ${propPosition.x.toFixed(3)}, unit: m }
-y: { value: ${propPosition.y.toFixed(3)}, unit: m }
-z: { value: ${propPosition.z.toFixed(3)}, unit: m }
-phi: { value: 0, unit: rad }
-theta: { value: 2.95, unit: deg }
-psi: { value: 0, unit: deg }
-        wake coefficient w: ${pwr.wakeCoefficient}
-        relative rotative efficiency etaR: ${pwr.relativeRotativeEfficiency}
-        thrust deduction factor t: ${pwr.thrustDeductionFactor}
-rotation: ${pwr.rotation === 'clockwise' ? 'clockwise' : 'anti-clockwise'}
-        number of blades: ${pwr.numberOfBlades}
-        blade area ratio AE / A0: ${pwr.bladeAreaRatio}
-diameter: { value: ${pwr.diameter}, unit: m }
-        rudder area: { value: ${pwr.rudderArea}, unit: m ^ 2 }
-        rudder height: { value: ${pwr.rudderHeight}, unit: m }
-        effective aspect ratio factor: ${pwr.effectiveAspectRatioFactor}
-        lift tuning coefficient: ${pwr.liftTuningCoefficient}
-        drag tuning coefficient: ${pwr.dragTuningCoefficient}
-        position of rudder in body frame:
-x: { value: ${rudderPosition.x.toFixed(3)}, unit: m }
-y: { value: ${rudderPosition.y.toFixed(3)}, unit: m }
-z: { value: ${rudderPosition.z.toFixed(3)}, unit: m }
-phi: { value: 0, unit: rad }
-theta: { value: 2.95, unit: deg }
-psi: { value: 0, unit: deg }
-`;
+    return [
+      `  - name: ${pwr.name}`,
+      `    model: propeller + rudder`,
+      `    position of propeller frame:`,
+      `      frame: ${this.name}`,
+      `      x: { value: ${propPos.x.toFixed(3)}, unit: m }`,
+      `      y: { value: ${propPos.y.toFixed(3)}, unit: m }`,
+      `      z: { value: ${propPos.z.toFixed(3)}, unit: m }`,
+      `      phi:   { value: 0, unit: rad }`,
+      `      theta: { value: 2.95, unit: deg }`,
+      `      psi:   { value: 0, unit: deg }`,
+      `    wake coefficient w: ${pwr.wakeCoefficient}`,
+      `    relative rotative efficiency etaR: ${pwr.relativeRotativeEfficiency}`,
+      `    thrust deduction factor t: ${pwr.thrustDeductionFactor}`,
+      `    rotation: ${pwr.rotation === "clockwise" ? "clockwise" : "anti-clockwise"}`,
+      `    number of blades: ${pwr.numberOfBlades}`,
+      `    blade area ratio AE/A0: ${pwr.bladeAreaRatio}`,
+      `    diameter: { value: ${pwr.diameter}, unit: m }`,
+      `    rudder area: { value: ${pwr.rudderArea}, unit: m^2 }`,
+      `    rudder height: { value: ${pwr.rudderHeight}, unit: m }`,
+      `    effective aspect ratio factor: ${pwr.effectiveAspectRatioFactor}`,
+      `    lift tuning coefficient: ${pwr.liftTuningCoefficient}`,
+      `    drag tuning coefficient: ${pwr.dragTuningCoefficient}`,
+      `    position of rudder in body frame:`,
+      `      x: { value: ${rudderPos.x.toFixed(3)}, unit: m }`,
+      `      y: { value: ${rudderPos.y.toFixed(3)}, unit: m }`,
+      `      z: { value: ${rudderPos.z.toFixed(3)}, unit: m }`,
+      `      phi:   { value: 0, unit: rad }`,
+      `      theta: { value: 2.95, unit: deg }`,
+      `      psi:   { value: 0, unit: deg }`,
+    ].join("\n");
   }
 
   createYaml(): string {
-    const environmentYaml = `
-rotations convention: [psi, theta', phi'']
+    const bfm = this.bodyFrameRelativeToMeshFrame;
 
-environmental constants:
-  g: { value: 9.81, unit: m / s ^ 2 }
-  rho: { value: 1025, unit: kg / m ^ 3 }
-  nu: { value: 1.18e-6, unit: m ^ 2 / s }
+    const sections: string[] = [];
 
-environment models:
-  - model: no wind
-  - model: waves
-    discretization:
-  ndir: 24
-      nfreq: 64
-      omega min: { value: 0.1, unit: rad / s }
-      omega max: { value: 12, unit: rad / s }
-      energy fraction: 1
-      equal energy bins: false
-    spectra:
-  - model: airy
-        depth: { value: 100000, unit: m }
-        seed of the random data generator: 2
-        stretching:
-  delta: 1
-          h: { unit: m, value: 0 }
-        directional spreading:
-  type: cos2s
-          s: 2
-          waves propagating to: { value: ${this.wave.angle}, unit: deg }
-  spectral density:
-  type: jonswap
-          Hs: { value: 1.5, unit: m }
-          Tp: { value: 3, unit: s }
-          gamma: 1.2
-    `;
+    // ── Environment ──────────────────────────────────────────────────────────
+    sections.push(
+      [
+        `rotations convention: [psi, theta', phi'']`,
+        ``,
+        `environmental constants:`,
+        `  g:   { value: 9.81,     unit: m/s^2 }`,
+        `  rho: { value: 1025,     unit: kg/m^3 }`,
+        `  nu:  { value: 1.18e-6,  unit: m^2/s }`,
+        ``,
+        `environment models:`,
+        `  - model: no wind`,
+        `  - model: waves`,
+        `    discretization:`,
+        `      ndir: 24`,
+        `      nfreq: 64`,
+        `      omega min: { value: 0.1, unit: rad/s }`,
+        `      omega max: { value: 12,  unit: rad/s }`,
+        `      energy fraction: 1`,
+        `      equal energy bins: false`,
+        `    spectra:`,
+        `      - model: airy`,
+        `        depth: { value: 100000, unit: m }`,
+        `        seed of the random data generator: 2`,
+        `        stretching:`,
+        `          delta: 1`,
+        `          h: { unit: m, value: 0 }`,
+        `        directional spreading:`,
+        `          type: cos2s`,
+        `          s: 2`,
+        `          waves propagating to: { value: ${this.wave.angle}, unit: deg }`,
+        `        spectral density:`,
+        `          type: jonswap`,
+        `          Hs:    { value: 1.5, unit: m }`,
+        `          Tp:    { value: 3,   unit: s }`,
+        `          gamma: 1.2`,
+      ].join("\n"),
+    );
 
-    const bodyFramePosYaml =
-      `    position of body frame relative to mesh:
-  frame: mesh
-      x: { value: ${this.bodyFrameRelativeToMeshFrame.x}, unit: m }
-  y: { value: ${this.bodyFrameRelativeToMeshFrame.y}, unit: m }
-  z: { value: ${this.bodyFrameRelativeToMeshFrame.z}, unit: m }
-  phi: { value: 0, unit: rad }
-      theta: { value: 0, unit: rad }
-      psi: { value: 0, unit: rad }`;
+    sections.push(
+      [
+        `bodies: # All bodies have NED as parent frame`,
+        `  - name: ${this.name}`,
+        `    mesh: ${this.name}/${this.name}.stl`,
+        ``,
+        `    position of body frame relative to mesh:`,
+        `      frame: mesh`,
+        `      x:   { value: ${bfm.x}, unit: m }`,
+        `      y:   { value: ${bfm.y}, unit: m }`,
+        `      z:   { value: ${bfm.z}, unit: m }`,
+        `      phi:   { value: 0, unit: rad }`,
+        `      theta: { value: 0, unit: rad }`,
+        `      psi:   { value: 0, unit: rad }`,
+        ``,
+        `    initial position of body frame relative to NED:`,
+        `      frame: NED`,
+        `      x:   { value: 0, unit: m }`,
+        `      y:   { value: 0, unit: m }`,
+        `      z:   { value: 0, unit: m }`,
+        `      phi:   { value: 0, unit: deg }`,
+        `      theta: { value: 0, unit: deg }`,
+        `      psi:   { value: 0, unit: deg }`,
+        ``,
+        `    initial velocity of body frame relative to NED:`,
+        `      frame: body`,
+        `      u: { value: 0, unit: m/s }`,
+        `      v: { value: 0, unit: m/s }`,
+        `      w: { value: 0, unit: m/s }`,
+        `      p: { value: 0, unit: rad/s }`,
+        `      q: { value: 0, unit: rad/s }`,
+        `      r: { value: 0, unit: rad/s }`,
+      ].join("\n"),
+    );
 
-    const hydroForcesPosYaml = `      hydrodynamic forces calculation point in body frame: ${this.vector3ToYamlVec(this.hydroForcesCalcPoint, 'm', 4)}`;
+    // ── Dynamics ─────────────────────────────────────────────────────────────
+    const hfcp = this.hydroForcesCalcPoint;
+    const coi = this.centerOfInertia;
 
-    const centerOfInertiaYaml = `      centre of inertia:
-  frame: ${this.name}${this.vector3ToYamlVec(this.centerOfInertia, 'm', 4)}`;
+    sections.push(
+      [
+        `    dynamics:`,
+        `      hydrodynamic forces calculation point in body frame:`,
+        `        frame: body`,
+        this.vector3ToYamlVec(hfcp, "m", 4),
+        ``,
+        `      centre of inertia:`,
+        `        frame: ${this.name}`,
+        this.vector3ToYamlVec(coi, "m", 4),
+        ``,
+        this.matrixToYaml(
+          "rigid body inertia matrix at the center of buoyancy projected in the body frame",
+          this._inertiaMatrixAtBuoyancy,
+          "body",
+          3,
+        ),
+        ``,
+        this.matrixToYaml(
+          "added mass matrix at the center of buoyancy projected in the body frame",
+          this._addedMass,
+          "body",
+          3,
+        ),
+      ].join("\n"),
+    );
 
-    const inertiaMatrixYaml = this.matrixToYaml('rigid body inertia matrix at the center of buoyancy projected in the body frame', this.inertiaMatrixAtBuoyancy, 'body', 3);
+    // ── External forces ───────────────────────────────────────────────────────
+    const externalForces: string[] = [
+      `    external forces:`,
+      `      - model: gravity`,
+      `      - model: non-linear hydrostatic (fast)`,
+      `      - model: non-linear Froude-Krylov`,
+      `      - model: linear damping`,
+      this.matrixToYaml(
+        "damping matrix at the center of gravity projected in the body frame",
+        this._linearDamping,
+        this.name,
+        4,
+      ),
+      `      - model: quadratic damping`,
+      this.matrixToYaml(
+        "damping matrix at the center of gravity projected in the body frame",
+        this._quadraticDamping,
+        this.name,
+        4,
+      ),
+    ];
 
-    const addedMassYaml = this.matrixToYaml('added mass matrix at the center of buoyancy projected in the body frame', this.addedMass, 'body', 3);
+    const resistanceYaml = this.resistanceCurveToYaml();
+    if (resistanceYaml) externalForces.push(resistanceYaml);
 
-    const linearDampingYaml = this.matrixToYaml('damping matrix at the center of gravity projected in the body frame', this.linearDamping, this.name, 4);
+    this.propellers.forEach((p) =>
+      externalForces.push(this.formatPropeller(p, `mesh(${this.name})`)),
+    );
+    this.controlSurfaces.forEach((cs) => externalForces.push(this.formatControlSurface(cs)));
+    this.propellerWithRudders.forEach((pwr) =>
+      externalForces.push(this.formatPropellerWithRudder(pwr)),
+    );
 
-    const quadraticDampingYaml = this.matrixToYaml('damping matrix at the center of gravity projected in the body frame', this.quadraticDamping, this.name, 4);
+    sections.push(externalForces.join("\n"));
 
-    const resistanceCurveYaml = this.resistanceCurveToYaml();
-
-    const propellersYaml = this.propellers
-      .map((prop, idx) => this.formatPropeller(prop, idx === 0 ? 'PSPropRudd' : 'SBPropRudd'))
-      .join('\n');
-
-    const contollSurfacesYaml = this.controllSurfaces
-      .map((rud, idx) => this.formatControllSurface(rud, idx === 0 ? 'PSPropRudd' : 'SBPropRudd'))
-      .join('\n');
-
-    const propellerRuddersYaml = this.propellerWithRudders
-      .map((pwr, idx) => this.formatPropellerWithRudder(pwr, idx === 0 ? 'PSPropRudd' : 'SBPropRudd'))
-      .join('\n');
-
-    return `
-${environmentYaml}
-bodies: # All bodies have NED as parent frame
-  - name: ${this.name}
-    mesh: ${this.name} / ${this.name}.stl
-
-${bodyFramePosYaml}
-
-    initial position of body frame relative to NED:
-  frame: NED
-      x: { value: 0, unit: m }
-      y: { value: 0, unit: m }
-      z: { value: 0, unit: m }
-      phi: { value: 0, unit: deg }
-      theta: { value: 0, unit: deg }
-      psi: { value: 0, unit: deg }
-
-    initial velocity of body frame relative to NED:
-  frame: body
-      u: { value: 0, unit: m / s }
-      v: { value: 0, unit: m / s }
-      w: { value: 0, unit: m / s }
-      p: { value: 0, unit: rad / s }
-      q: { value: 0, unit: rad / s }
-      r: { value: 0, unit: rad / s }
-
-    dynamics:
-  ${hydroForcesPosYaml}
-
-${centerOfInertiaYaml}
-
-${inertiaMatrixYaml}
-
-${addedMassYaml}
-
-    external forces:
-  - model: gravity
-
-  - model: non - linear hydrostatic(fast)
-
-  - model: non - linear Froude - Krylov
-
-  - model: linear damping
-${linearDampingYaml}
-
-  - model: quadratic damping
-${quadraticDampingYaml}
-
-${resistanceCurveYaml}
-
-${propellersYaml}
-
-${contollSurfacesYaml}
-
-${propellerRuddersYaml}
-
-    `;
+    return sections.join("\n\n");
   }
 }
-
