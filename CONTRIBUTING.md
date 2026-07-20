@@ -30,7 +30,7 @@ The biannual LOTUSim roadmap is based on:
 
 - Community-driven contributions.
 
-For roadmap-related question, please contact the [Product Owner](estelle.chauveau@naval-group.com).
+For roadmap-related question, please contact the [Product Owner](lotusim_support@naval-group.com).
 
 ## How to Contribute
 
