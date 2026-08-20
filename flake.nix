@@ -17,19 +17,10 @@
 
   outputs = { self, nix-ros-overlay, nixpkgs, flake-utils }:
     let
-      # A builder, not a flake input: LOTUSim passes its messages in, so the arrow points one way.
-      mkBackend =
-        { pkgs
-        , rosMessages ? null
-        , assets ? null
-        , nodejs ? pkgs.nodejs_22
-        }:
+      # Found by running it: rclnodejs' own lib/ needs far more than binding.gyp names.
+      rosEnv = pkgs:
         let
-          ros = pkgs.rosPackages.jazzy;
-          inherit (pkgs.lib) optionalString optionals escapeShellArgs;
-
-          # Found by running it: rclnodejs' own lib/ needs far more than binding.gyp names.
-          rosRuntime = with ros; [
+          rosRuntime = with pkgs.rosPackages.jazzy; [
             rcl
             rcl-action
             rcl-lifecycle
@@ -63,6 +54,9 @@
             rosidl-parser
             rosidl-adapter
           ];
+        in
+        {
+          inherit rosRuntime;
 
           # One merged prefix for gyp alone: rclnodejs assumes apt's single-root include/ and lib/.
           amentEnv = pkgs.buildEnv {
@@ -70,6 +64,18 @@
             ignoreCollisions = true;
             paths = rosRuntime;
           };
+        };
+
+      # A builder, not a flake input: LOTUSim passes its messages in, so the arrow points one way.
+      mkBackend =
+        { pkgs
+        , rosMessages ? null
+        , assets ? null
+        , nodejs ? pkgs.nodejs_22
+        }:
+        let
+          inherit (rosEnv pkgs) rosRuntime amentEnv;
+          inherit (pkgs.lib) optionalString optionals escapeShellArgs;
 
           # generate_messages.js swallows its own errors and exits 0, so assert the output.
           expectedPackages = [
@@ -117,6 +123,9 @@
               export PATH=${amentEnv}/bin:$PATH
 
               ( cd node_modules/rclnodejs && node "$npm_config_node_gyp" rebuild -j "$NIX_BUILD_CORES" )
+
+              # rclnodejs prefers a prebuild matching /etc/os-release over the one just built.
+              rm -rf node_modules/rclnodejs/prebuilds
 
               node node_modules/.bin/tsc
 
@@ -183,8 +192,34 @@
           '';
         in
         backend;
+
+      # A builder for the same reason: the shell that has LOTUSim's messages is composed there.
+      mkBackendShell =
+        { pkgs
+        , rosMessages ? null
+        , nodejs ? pkgs.nodejs_22
+        }:
+        let
+          inherit (rosEnv pkgs) rosRuntime amentEnv;
+        in
+        pkgs.mkShell {
+          name = "lotusim-ui-backend-shell";
+
+          # rosRuntime, not amentEnv: only the setup hooks reach the dlopened rmw typesupport.
+          packages = [ nodejs pkgs.python3 pkgs.which ] ++ rosRuntime;
+
+          shellHook = ''
+            export ROS_DISTRO=jazzy
+
+            # `which ros2` dirnamed twice is how binding.gyp finds ROS, so the merged prefix leads.
+            export PATH="${amentEnv}/bin:$PATH"
+          '' + pkgs.lib.optionalString (rosMessages != null) ''
+            export AMENT_PREFIX_PATH="${rosMessages}:$AMENT_PREFIX_PATH"
+            export LD_LIBRARY_PATH="${rosMessages}/lib:$LD_LIBRARY_PATH"
+          '';
+        };
     in
-    { lib.mkBackend = mkBackend; } //
+    { lib = { inherit mkBackend mkBackendShell; }; } //
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -206,17 +241,7 @@
           program = "${backend}/bin/lotusim-ui-backend";
         };
 
-        devShells.default = pkgs.mkShell {
-          packages = [ pkgs.nodejs_22 pkgs.python3 ];
-
-          # In-tree `npm install` needs the same merged prefix, plus LOTUSIM_WS when mise sets it.
-          shellHook = ''
-            export ROS_DISTRO=jazzy
-            export PATH="${backend.amentEnv}/bin:$PATH"
-            export AMENT_PREFIX_PATH="''${LOTUSIM_WS:+$LOTUSIM_WS/install:}${backend.amentEnv}"
-            export LD_LIBRARY_PATH="''${LOTUSIM_WS:+$LOTUSIM_WS/install/lib:}${backend.amentEnv}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-            export PYTHONPATH="${backend.amentEnv}/${pkgs.python3.sitePackages}''${PYTHONPATH:+:$PYTHONPATH}"
-          '';
-        };
+        # Core messages only, like packages.default; LOTUSim composes the shell that has more.
+        devShells.default = mkBackendShell { inherit pkgs; };
       });
 }

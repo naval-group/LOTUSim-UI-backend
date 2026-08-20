@@ -5,6 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "npx generate-ros-messages && tsc",
+    "setup": "npm ci --ignore-scripts && rm -rf node_modules/rclnodejs/prebuilds && npm rebuild rclnodejs",
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",
     "format": "prettier --write \"src/**/*.ts\"",
