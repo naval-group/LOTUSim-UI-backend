@@ -5,6 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "npx generate-ros-messages && tsc",
+    "setup": "npm ci --ignore-scripts && rm -rf node_modules/rclnodejs/prebuilds && npm rebuild rclnodejs",
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -19,7 +20,7 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "multer": "^2.0.1",
-    "rclnodejs": "^0.27.5",
+    "rclnodejs": "^2.1.1",
     "ws": "^8.18.0",
     "xml2js": "^0.6.2",
     "yaml": "^2.8.2"
