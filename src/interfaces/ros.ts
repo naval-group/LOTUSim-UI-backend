@@ -200,7 +200,12 @@ class RosInstance {
     this.#vesselPositionMap.clear();
 
     for (const vesselPosition of vesselPositionArray.vessels) {
-      const { vessel_name: vesselName, geo_point: geoPoint, pose } = vesselPosition;
+      const {
+        vessel_name: vesselName,
+        model_name: modelName,
+        geo_point: geoPoint,
+        pose,
+      } = vesselPosition;
 
       if (
         !geoPoint ||
@@ -211,6 +216,12 @@ class RosInstance {
         console.warn(`Invalid geoPoint data for vessel: ${vesselName}`);
         continue;
       }
+
+      if (modelName) {
+        this.#vesselModelMap.set(vesselName, modelName);
+      }
+
+      this.#subscribeToPowerStatus(vesselName);
 
       const point = new GeoPoint(geoPoint.latitude, geoPoint.longitude, geoPoint.altitude);
 
@@ -293,6 +304,10 @@ class RosInstance {
       activeProvider: msg.active_provider,
       providers,
     });
+    console.log(
+      `[${this.#instanceName}] Power status received for ${vesselName}:`,
+      msg
+    );
   }
 
   #handleCmdSideEffects(cmd: { cmd_type: number; vessel_name?: string; model_name?: string }): void {
