@@ -41,6 +41,7 @@ const MASCmdMsg = rclnodejs.require("lotusim_msgs/msg/MASCmd");
 const GeoPointMsg = rclnodejs.require("geographic_msgs/msg/GeoPoint");
 const SrvString = rclnodejs.require("lotusim_msgs/srv/String");
 const Trigger = rclnodejs.require("std_srvs/srv/Trigger");
+const LogMsg = rclnodejs.require("lotusim_msgs/msg/Log");
 
 type VesselPositionArray = InstanceType<typeof VesselPositionArrayMsg>;
 type MASCmdArrayGoal = InstanceType<typeof MASCmdArrayAction.Goal>;
@@ -63,6 +64,16 @@ export interface MASCmdRequest {
 /** REST request body for a batch of MAS commands. */
 export interface MASCmdArrayRequest {
   cmd: MASCmdRequest[];
+}
+
+interface LogMessage {
+  stamp: {
+    sec: number;
+    nanosec: number;
+  };
+  logger: string;
+  level: number;
+  message: string;
 }
 
 // ─── Shared Clock ────────────────────────────────────────────
@@ -284,12 +295,18 @@ class RosInstance {
 export class ROSInstances {
   readonly #instanceMap: Map<string, RosInstance> = new Map();
   readonly #node: rclnodejs.Node;
+  readonly #logSub: rclnodejs.Subscription;
 
   constructor() {
     if (rclnodejs.isShutdown()) {
       rclnodejs.init();
     }
     this.#node = new rclnodejs.Node("UserInterfaceNode");
+    this.#logSub = this.#node.createSubscription(
+      "lotusim_msgs/msg/Log",
+      "/lotusim/logs",
+      this.#logSubCB.bind(this),
+    );
     this.startNode();
   }
 
@@ -314,6 +331,27 @@ export class ROSInstances {
       }
     };
     setInterval(sync, 5000);
+  }
+
+  #logCallback?: (log: LogMessage) => void;
+  public setLogCallback(callback: (log: LogMessage) => void): void {
+    this.#logCallback = callback;
+  }
+
+  #logSubCB(msg: LogMessage | Buffer): void {
+    let logMessage: LogMessage;
+
+    if (Buffer.isBuffer(msg)) {
+      try {
+        logMessage = JSON.parse(msg.toString()) as LogMessage;
+      } catch {
+        console.error("Failed to parse incoming log message.");
+        return;
+      }
+    } else {
+      logMessage = msg;
+    }
+    this.#logCallback?.(logMessage);
   }
 
   /** Destroys the ROS2 node and all managed instances. */
