@@ -54,6 +54,9 @@ export class WebSocketServer {
     this.clientNameWsMapping = new Map<string, WebSocket>();
     this.wsClientNameMapping = new Map<WebSocket, string>();
     console.log(`WebSocket server started.`);
+    rosInstances.setLogCallback((log) => {
+      this.broadcastLog(log);
+    });
   }
 
   /**
@@ -143,6 +146,35 @@ export class WebSocketServer {
         }
       } else {
         console.log(`No vessel data found for client: ${clientName}`);
+      }
+    });
+  }
+
+  /**
+   * Broadcasts log messages to all connected clients.
+   */
+  private broadcastLog(log: {
+    stamp: {
+      sec: number;
+      nanosec: number;
+    };
+    logger: string;
+    level: number;
+    message: string;
+  }): void {
+    const logMessage = {
+      type: "log",
+      log: {
+        timestamp: log.stamp,
+        logger: log.logger,
+        level: log.level === 0 ? "info" : "error",
+        message: log.message,
+      },
+    };
+
+    this.wsClientNameMapping.forEach((_, ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(logMessage));
       }
     });
   }
