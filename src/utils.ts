@@ -54,24 +54,6 @@ export function quaternionToEulerZYX(q: Quaternion): [number, number, number] {
   return [yaw, pitch, roll];
 }
 
-/** Compass bearing (deg, 0 = North, clockwise) -> ENU yaw (rad, 0 = East, counter-clockwise) */
-export function bearingToEnuYawRad(bearingDeg: number): number {
-  return ((90 - bearingDeg) * Math.PI) / 180;
-}
-
-/**
- * Extracts a GPS heading (degrees, [0, 360)) from a quaternion.
- * Converts ENU yaw (Gazebo convention) to NED heading.
- */
 export const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : "Internal server error";
 
-export function quaternionToGpsHeading(qx: number, qy: number, qz: number, qw: number): number {
-  const siny_cosp = 2 * (qw * qz + qx * qy);
-  const cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
-  const yawRad = Math.atan2(siny_cosp, cosy_cosp);
-
-  const headingDeg = 90 - (yawRad * 180) / Math.PI;
-  const rounded = Math.round(headingDeg * 100) / 100;
-  return (rounded + 360) % 360; //359.999 is now 360
-}

@@ -71,7 +71,7 @@ export interface Pose {
 export interface VesselPosition {
   vesselName: string;
   geoPoint?: GeoPoint;
-  pose?: Pose;
+  /** Where the bow points, degrees from true North, clockwise. */
   heading?: number;
 }
 
@@ -80,10 +80,10 @@ export class GeoPoint {
   #longitude: number;
   #altitude: number;
   /**
-   * Constructs a new GeoPoint object.
-   * @param latitude
-   * @param longitude
-   * @param heading - Heading angle (rotation) of the vessel in radians.
+   * A WGS84 position.
+   * @param latitude - degrees, North positive
+   * @param longitude - degrees, East positive
+   * @param altitude - metres from sea level, negative when submerged
    */
   constructor(latitude: number, longitude: number, altitude: number) {
     this.#latitude = latitude;
