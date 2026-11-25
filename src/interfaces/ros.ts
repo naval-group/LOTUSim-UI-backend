@@ -28,9 +28,9 @@
  */
 
 import * as rclnodejs from "rclnodejs";
-import { GeoPoint, VesselPosition, Pose } from "./geometry";
-import { bearingToEnuYawRad, quaternionToGpsHeading } from "../utils";
+import { GeoPoint, VesselPosition } from "./geometry";
 import { parseModelSdf, SensorInfo } from "../models/sdf-parser";
+import { validateMASCmd } from "../utils";
 
 // ─── ROS Message Types ───────────────────────────────────────
 
@@ -74,8 +74,9 @@ export interface MASCmdRequest {
   modelName?: string;
   vesselName?: string;
   entity?: number;
-  vesselPosition?: Pose;
+  /** Create / move: latitude and longitude in degrees, altitude in metres from sea level. */
   geoPoint?: GeoPoint;
+  /** Create / move: where the bow points, degrees from true North, clockwise. */
   heading?: number;
 }
 
@@ -249,7 +250,7 @@ class RosInstance {
         vessel_name: vesselName,
         model_name: modelName,
         geo_point: geoPoint,
-        pose,
+        heading,
       } = vesselPosition;
 
       if (
@@ -270,24 +271,10 @@ class RosInstance {
 
       const point = new GeoPoint(geoPoint.latitude, geoPoint.longitude, geoPoint.altitude);
 
-      const o = pose?.orientation;
-      let heading: number | undefined;
-      if (
-        o &&
-        typeof o.x === "number" &&
-        typeof o.y === "number" &&
-        typeof o.z === "number" &&
-        typeof o.w === "number"
-      ) {
-        heading = quaternionToGpsHeading(o.x, o.y, o.z, o.w);
-      } else {
-        console.warn(`Invalid orientation data for vessel: ${vesselName}`);
-      }
-
+      // Degrees from true North, clockwise, as the core publishes it.
       const position: VesselPosition = {
         vesselName,
         geoPoint: point,
-        pose: pose,
         heading: heading,
       };
 
@@ -585,6 +572,13 @@ export class ROSInstances {
    * Sends an array of MAS commands to the given instance.
    */
   async sendMASCmdArray(instance: string, cmds: MASCmdRequest[]): Promise<boolean> {
+    for (const c of cmds) {
+      const error = validateMASCmd(c);
+      if (error) {
+        console.error(`sendMASCmdArray rejected: ${error}`);
+        return false;
+      }
+    }
     const goal: MASCmdArrayGoal = new MASCmdArrayAction.Goal();
     goal.header = { stamp: systemClock.now().toMsg(), frame_id: "world" };
     goal.cmd = [];
@@ -601,7 +595,7 @@ export class ROSInstances {
         rosCmd.geo_point.longitude = cmd.geoPoint.longitude;
         rosCmd.geo_point.altitude = cmd.geoPoint.altitude;
       }
-      if (cmd.heading !== undefined) rosCmd.heading = bearingToEnuYawRad(cmd.heading);
+      if (cmd.heading !== undefined) rosCmd.heading = cmd.heading;
       goal.cmd.push(rosCmd);
     }
 
@@ -615,9 +609,13 @@ export class ROSInstances {
 
   /**
    * Sends a single MAS command to the given instance.
-   * Note: lat/lon → XY conversion is a temporary measure.
    */
   async sendMASCmd(instance: string, cmd: MASCmdRequest): Promise<boolean> {
+    const error = validateMASCmd(cmd);
+    if (error) {
+      console.error(`sendMASCmd rejected: ${error}`);
+      return false;
+    }
     const goal: MASCmdGoal = new MASCmdAction.Goal();
     goal.header = { stamp: systemClock.now().toMsg(), frame_id: "world" };
     goal.cmd.cmd_type = cmd.cmdType;
@@ -630,7 +628,7 @@ export class ROSInstances {
       goal.cmd.geo_point.latitude = cmd.geoPoint.latitude;
       goal.cmd.geo_point.altitude = cmd.geoPoint.altitude;
     }
-    if (cmd.heading !== undefined) goal.cmd.heading = bearingToEnuYawRad(cmd.heading);
+    if (cmd.heading !== undefined) goal.cmd.heading = cmd.heading;
     try {
       return (await this.#instanceMap.get(instance)?.sendMASCmd(goal)) ?? false;
     } catch (err) {
